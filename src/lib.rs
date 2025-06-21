@@ -10,7 +10,10 @@ pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, String> {
         .iter()
         .map(|x| x.to_owned() as u32)
         .collect::<Vec<u32>>();
-    let first_byte = version_bytes.first().expect("First byte not found").to_owned();
+    let first_byte = version_bytes
+        .first()
+        .expect("First byte not found")
+        .to_owned();
 
     Ok(first_byte)
 }
