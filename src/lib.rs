@@ -1,3 +1,5 @@
+use std::io::Read;
+
 // Implement extract_tx_version function below
 pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, String> {
     let transaction_bytes = hex::decode(raw_tx_hex).map_err(|_x| "Hex decode error")?;
@@ -5,13 +7,13 @@ pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, String> {
         return Err("Transaction data too short".into());
     }
 
-    let version_bytes = &transaction_bytes[..4];
-    // either TryFrom or TryInto
-    // let version_bytes: Result<[u8; 4], TryFromSliceError> = <[u8; 4]>::try_from(version_bytes);
-    let version_bytes: [u8; 4] = version_bytes
-        .try_into()
-        .map_err(|_| "Invalid version bytes")?;
-    let le_bytes = u32::from_le_bytes(version_bytes);
+    let mut bytes_slice = transaction_bytes.as_slice();
+    Ok(read_version(&mut bytes_slice))
+}
 
-    Ok(le_bytes)
+fn read_version(transaction_bytes: &mut &[u8]) -> u32 {
+    let mut buffer = [0; 4];
+    transaction_bytes.read_exact(&mut buffer).unwrap();
+
+    u32::from_le_bytes(buffer)
 }
