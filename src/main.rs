@@ -1,12 +1,18 @@
+use rust_week_1_exercises::{extract_tx_size, extract_tx_version, read_compact_size, read_u32};
+use serde::Serialize;
 use std::io::Read;
-use rust_week_1_exercises::{extract_tx_version, extract_tx_size, read_u32, read_compact_size};
 
-#[warn(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+struct Transaction {
+    version: u32,
+    inputs: Vec<Input>,
+}
+
+#[derive(Debug, Serialize)]
 struct Input {
-    txid: [u8; 32],
+    txid: String, // [u8; 32]
     output_index: u32,
-    script_sig: Vec<u8>,
+    script_sig: String, // Vec<u8>
     sequence: u32,
 }
 
@@ -34,20 +40,25 @@ fn main() {
         });
     }
 
+    let tx = Transaction {
+        version,
+        inputs,
+    };
+
     println!("Version: {version:?}");
-    println!("Inputs: {inputs:?}");
+    println!("Transaction: {}", serde_json::to_string_pretty(&tx).unwrap());
 }
 
-fn read_txid(transaction_bytes: &mut &[u8]) -> [u8; 32] {
+fn read_txid(transaction_bytes: &mut &[u8]) -> String {
     let mut buffer = [0; 32];
     transaction_bytes.read_exact(&mut buffer).unwrap();
     buffer.reverse();
-    buffer
+    hex::encode(buffer)
 }
 
-fn read_script(transaction_bytes: &mut &[u8]) -> Vec<u8> {
+fn read_script(transaction_bytes: &mut &[u8]) -> String {
     let script_size = read_compact_size(transaction_bytes) as usize;
     let mut buffer = vec![0_u8; script_size];
     transaction_bytes.read_exact(&mut buffer).unwrap();
-    buffer
+    hex::encode(buffer)
 }
