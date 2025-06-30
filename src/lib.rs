@@ -1,4 +1,5 @@
 use std::io::Read;
+use serde::Serialize;
 
 // Implement extract_tx_version function below
 pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, String> {
@@ -48,6 +49,22 @@ pub fn read_u32(transaction_bytes: &mut &[u8]) -> u32 {
     transaction_bytes.read_exact(&mut buffer).unwrap();
 
     u32::from_le_bytes(buffer)
+}
+
+#[derive(Debug, Serialize)]
+pub struct Amount(u64);
+
+impl Amount {
+    pub fn to_btc(&self) -> f64 {
+        self.0 as f64 / 100_000_000.0
+    }
+}
+
+pub fn read_amount(transaction_bytes: &mut &[u8]) -> Amount {
+    let mut buffer = [0; 8];
+    transaction_bytes.read_exact(&mut buffer).unwrap();
+    let amount = u64::from_le_bytes(buffer);
+    Amount(amount)
 }
 
 
