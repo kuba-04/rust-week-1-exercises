@@ -8,7 +8,7 @@ pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, String> {
     }
 
     let mut bytes_slice = transaction_bytes.as_slice();
-    Ok(read_version(&mut bytes_slice))
+    Ok(read_u32(&mut bytes_slice))
 }
 
 pub fn extract_tx_size(raw_tx_hex: &str) -> u64 {
@@ -18,32 +18,32 @@ pub fn extract_tx_size(raw_tx_hex: &str) -> u64 {
     read_compact_size(&mut bytes_slice)
 }
 
-fn read_compact_size(transaction_bytes: &mut &[u8]) -> u64 {
+pub fn read_compact_size(transaction_bytes: &mut &[u8]) -> u64 {
     let mut compact_size = [0_u8; 1];
-    transaction_bytes.read(&mut compact_size).unwrap();
+    transaction_bytes.read_exact(&mut compact_size).unwrap();
 
     match compact_size[0] {
         0..=252 => compact_size[0] as u64,
         253 => {
             let mut buffer = [0; 2];
-            transaction_bytes.read(&mut buffer).unwrap();
+            transaction_bytes.read_exact(&mut buffer).unwrap();
             u16::from_le_bytes(buffer) as u64
         },
         254 => {
             let mut buffer = [0; 4];
-            transaction_bytes.read(&mut buffer).unwrap();
+            transaction_bytes.read_exact(&mut buffer).unwrap();
             u32::from_le_bytes(buffer) as u64
         },
         255 => {
             let mut buffer = [0; 8];
-            transaction_bytes.read(&mut buffer).unwrap();
+            transaction_bytes.read_exact(&mut buffer).unwrap();
             u64::from_le_bytes(buffer)
         }
         _ => panic!("Invalid compact size"),
     }
 }
 
-fn read_version(transaction_bytes: &mut &[u8]) -> u32 {
+pub fn read_u32(transaction_bytes: &mut &[u8]) -> u32 {
     let mut buffer = [0; 4];
     transaction_bytes.read_exact(&mut buffer).unwrap();
 
