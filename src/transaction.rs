@@ -1,11 +1,26 @@
 use std::io::Read;
 use serde::{Serialize, Serializer};
+use sha2::{Digest, Sha256};
 
-pub fn read_txid(transaction_bytes: &mut &[u8]) -> String {
+pub fn hash_raw_transaction(raw_tx: &[u8]) -> Txid {
+    let mut hasher = Sha256::new();
+    hasher.update(&raw_tx);
+    let hash1 = hasher.finalize();
+
+    let mut hasher = Sha256::new();
+    hasher.update(&hash1);
+    let hash2 = hasher.finalize();
+
+    // we can call into() on a trait that implements From, as into is the reciprocal of From and
+    // the lib says that finalize returns the GenericArray
+    Txid::from_bytes(hash2.into())
+}
+
+pub fn read_txid(transaction_bytes: &mut &[u8]) -> Txid {
     let mut buffer = [0; 32];
     transaction_bytes.read_exact(&mut buffer).unwrap();
     buffer.reverse();
-    hex::encode(buffer)
+    Txid::from_bytes(buffer)
 }
 
 pub fn read_script(transaction_bytes: &mut &[u8]) -> String {
@@ -93,15 +108,33 @@ pub fn read_amount(transaction_bytes: &mut &[u8]) -> Amount {
 
 #[derive(Debug, Serialize)]
 pub struct Transaction {
+    pub transaction_id: Txid,
     pub version: u32,
     pub inputs: Vec<Input>,
     pub outputs: Vec<Output>,
+    pub lock_time: u32,
+}
 
+#[derive(Debug)]
+pub struct Txid([u8; 32]);
+
+impl Txid {
+    pub fn from_bytes(bytes: [u8; 32]) -> Txid {
+        Txid(bytes)
+    }
+}
+
+impl Serialize for Txid {
+    fn serialize<S:Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut bytes = self.0.clone();
+        bytes.reverse();
+        serializer.serialize_str(&hex::encode(bytes))
+    }
 }
 
 #[derive(Debug, Serialize)]
 pub struct Input {
-    pub txid: String, // [u8; 32]
+    pub txid: Txid,
     pub output_index: u32,
     pub script_sig: String, // Vec<u8>
     pub sequence: u32,
