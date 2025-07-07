@@ -1,7 +1,20 @@
 use std::io::Read;
 use serde::{Serialize, Serializer};
 
-// Implement extract_tx_version function below
+pub fn read_txid(transaction_bytes: &mut &[u8]) -> String {
+    let mut buffer = [0; 32];
+    transaction_bytes.read_exact(&mut buffer).unwrap();
+    buffer.reverse();
+    hex::encode(buffer)
+}
+
+pub fn read_script(transaction_bytes: &mut &[u8]) -> String {
+    let script_size = read_compact_size(transaction_bytes) as usize;
+    let mut buffer = vec![0_u8; script_size];
+    transaction_bytes.read_exact(&mut buffer).unwrap();
+    hex::encode(buffer)
+}
+
 pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, String> {
     let transaction_bytes = hex::decode(raw_tx_hex).map_err(|_x| "Hex decode error")?;
     if transaction_bytes.len() < 8 {
