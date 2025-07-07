@@ -1,5 +1,5 @@
 use std::io::Read;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 
 // Implement extract_tx_version function below
 pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, String> {
@@ -54,8 +54,12 @@ pub fn read_u32(transaction_bytes: &mut &[u8]) -> u32 {
 #[derive(Debug, Serialize)]
 pub struct Amount(u64);
 
-impl Amount {
-    pub fn to_btc(&self) -> f64 {
+pub trait BitcoinValue {
+    fn to_btc(&self) -> f64;
+}
+
+impl BitcoinValue for Amount {
+    fn to_btc(&self) -> f64 {
         self.0 as f64 / 100_000_000.0
     }
 }
@@ -65,6 +69,35 @@ pub fn read_amount(transaction_bytes: &mut &[u8]) -> Amount {
     transaction_bytes.read_exact(&mut buffer).unwrap();
     let amount = u64::from_le_bytes(buffer);
     Amount(amount)
+}
+
+
+#[derive(Debug, Serialize)]
+pub struct Transaction {
+    pub version: u32,
+    pub inputs: Vec<Input>,
+    pub outputs: Vec<Output>,
+
+}
+
+#[derive(Debug, Serialize)]
+pub struct Input {
+    pub txid: String, // [u8; 32]
+    pub output_index: u32,
+    pub script_sig: String, // Vec<u8>
+    pub sequence: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Output {
+    #[serde(serialize_with = "as_btc")]
+    pub amount: Amount,
+    pub script_pubkey: String,
+}
+
+pub fn as_btc<S: Serializer, T: BitcoinValue>(t: &T, s: S) -> Result<S::Ok, S::Error> {
+    let btc = t.to_btc();
+    s.serialize_f64(btc)
 }
 
 
