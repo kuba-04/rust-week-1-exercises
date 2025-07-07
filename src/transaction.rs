@@ -54,6 +54,12 @@ pub fn read_u32(transaction_bytes: &mut &[u8]) -> u32 {
 #[derive(Debug, Serialize)]
 pub struct Amount(u64);
 
+impl Amount {
+    pub fn from_sat(satoshi: u64) -> Amount {
+        Amount(satoshi)
+    }
+}
+
 pub trait BitcoinValue {
     fn to_btc(&self) -> f64;
 }
@@ -68,7 +74,7 @@ pub fn read_amount(transaction_bytes: &mut &[u8]) -> Amount {
     let mut buffer = [0; 8];
     transaction_bytes.read_exact(&mut buffer).unwrap();
     let amount = u64::from_le_bytes(buffer);
-    Amount(amount)
+    Amount::from_sat(amount)
 }
 
 
