@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Error, ErrorKind, Read};
 use serde::{Serialize, Serializer};
 use sha2::{Digest, Sha256};
 
@@ -16,67 +16,75 @@ pub fn hash_raw_transaction(raw_tx: &[u8]) -> Txid {
     Txid::from_bytes(hash2.into())
 }
 
-pub fn read_txid(transaction_bytes: &mut &[u8]) -> Txid {
+pub fn read_txid(transaction_bytes: &mut &[u8]) -> Result<Txid, Error> {
     let mut buffer = [0; 32];
-    transaction_bytes.read_exact(&mut buffer).unwrap();
+    transaction_bytes.read_exact(&mut buffer)?;
     buffer.reverse();
-    Txid::from_bytes(buffer)
+    Ok(Txid::from_bytes(buffer))
 }
 
-pub fn read_script(transaction_bytes: &mut &[u8]) -> String {
-    let script_size = read_compact_size(transaction_bytes) as usize;
+pub fn read_script(transaction_bytes: &mut &[u8]) -> Result<String, Error> {
+    let script_size = read_compact_size(transaction_bytes)? as usize;
     let mut buffer = vec![0_u8; script_size];
-    transaction_bytes.read_exact(&mut buffer).unwrap();
-    hex::encode(buffer)
+    transaction_bytes.read_exact(&mut buffer)?;
+    Ok(hex::encode(buffer))
 }
 
-pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, String> {
-    let transaction_bytes = hex::decode(raw_tx_hex).map_err(|_x| "Hex decode error")?;
+pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, Error> {
+    let transaction_bytes = hex::decode(raw_tx_hex).map_err(|_x| "Hex decode error");
+    let transaction_bytes = match transaction_bytes {
+        Ok(tb) => tb,
+        Err(e) => return Err(Error::new(ErrorKind::InvalidInput, format!("{:?}", e))),
+    };
     if transaction_bytes.len() < 8 {
-        return Err("Transaction data too short".into());
+        return Err(Error::new(ErrorKind::InvalidInput, "Transaction data too short"));
     }
 
     let mut bytes_slice = transaction_bytes.as_slice();
-    Ok(read_u32(&mut bytes_slice))
+    read_u32(&mut bytes_slice)
 }
 
-pub fn extract_tx_size(raw_tx_hex: &str) -> u64 {
-    let transaction_bytes = hex::decode(raw_tx_hex).unwrap();
+pub fn extract_tx_size(raw_tx_hex: &str) -> Result<u64, Error> {
+    let transaction_bytes = hex::decode(raw_tx_hex);
+    let transaction_bytes = match transaction_bytes {
+        Ok(tb) => tb,
+        Err(e) => return Err(Error::new(ErrorKind::InvalidInput, format!("{:?}", e))),
+    };
     let mut bytes_slice = transaction_bytes.as_slice();
 
     read_compact_size(&mut bytes_slice)
 }
 
-pub fn read_compact_size(transaction_bytes: &mut &[u8]) -> u64 {
+pub fn read_compact_size(transaction_bytes: &mut &[u8]) -> Result<u64, Error> {
     let mut compact_size = [0_u8; 1];
-    transaction_bytes.read_exact(&mut compact_size).unwrap();
+    transaction_bytes.read_exact(&mut compact_size)?;
 
     match compact_size[0] {
-        0..=252 => compact_size[0] as u64,
+        0..=252 => Ok(compact_size[0] as u64),
         253 => {
             let mut buffer = [0; 2];
-            transaction_bytes.read_exact(&mut buffer).unwrap();
-            u16::from_le_bytes(buffer) as u64
+            transaction_bytes.read_exact(&mut buffer)?;
+            Ok(u16::from_le_bytes(buffer) as u64)
         },
         254 => {
             let mut buffer = [0; 4];
-            transaction_bytes.read_exact(&mut buffer).unwrap();
-            u32::from_le_bytes(buffer) as u64
+            transaction_bytes.read_exact(&mut buffer)?;
+            Ok(u32::from_le_bytes(buffer) as u64)
         },
         255 => {
             let mut buffer = [0; 8];
-            transaction_bytes.read_exact(&mut buffer).unwrap();
-            u64::from_le_bytes(buffer)
+            transaction_bytes.read_exact(&mut buffer)?;
+            Ok(u64::from_le_bytes(buffer))
         }
         _ => panic!("Invalid compact size"),
     }
 }
 
-pub fn read_u32(transaction_bytes: &mut &[u8]) -> u32 {
+pub fn read_u32(transaction_bytes: &mut &[u8]) -> Result<u32, Error> {
     let mut buffer = [0; 4];
-    transaction_bytes.read_exact(&mut buffer).unwrap();
+    transaction_bytes.read_exact(&mut buffer)?;
 
-    u32::from_le_bytes(buffer)
+    Ok(u32::from_le_bytes(buffer))
 }
 
 #[derive(Debug, Serialize)]
@@ -98,11 +106,11 @@ impl BitcoinValue for Amount {
     }
 }
 
-pub fn read_amount(transaction_bytes: &mut &[u8]) -> Amount {
+pub fn read_amount(transaction_bytes: &mut &[u8]) -> Result<Amount, Error> {
     let mut buffer = [0; 8];
-    transaction_bytes.read_exact(&mut buffer).unwrap();
+    transaction_bytes.read_exact(&mut buffer)?;
     let amount = u64::from_le_bytes(buffer);
-    Amount::from_sat(amount)
+    Ok(Amount::from_sat(amount))
 }
 
 
@@ -155,34 +163,37 @@ pub fn as_btc<S: Serializer, T: BitcoinValue>(t: &T, s: S) -> Result<S::Ok, S::E
 
 #[cfg(test)]
 mod tests {
+    use std::io::Error;
     use crate::{extract_tx_size, read_compact_size};
 
     #[test]
-    fn test_read_compact_size() {
+    fn test_read_compact_size() -> Result<(), Error> {
         let mut bytes = [1_u8].as_slice();
-        let count = read_compact_size(&mut bytes);
+        let count = read_compact_size(&mut bytes)?;
         assert_eq!(count, 1_u64);
 
         let mut bytes = [253_u8, 0, 1].as_slice();
-        let count = read_compact_size(&mut bytes);
+        let count = read_compact_size(&mut bytes)?;
         assert_eq!(count, 256_u64);
 
         let mut bytes = [254_u8, 0, 0, 0, 1].as_slice();
-        let count = read_compact_size(&mut bytes);
+        let count = read_compact_size(&mut bytes)?;
         assert_eq!(count, 256_u64.pow(3));
 
         let mut bytes = [255_u8, 0, 0, 0, 0, 0, 0, 0, 1].as_slice();
-        let count = read_compact_size(&mut bytes);
+        let count = read_compact_size(&mut bytes)?;
         assert_eq!(count, 256_u64.pow(7));
 
         // non edge value
         let mut bytes = [255_u8, 1, 1, 0, 0, 0, 0, 0, 1].as_slice();
-        let count = read_compact_size(&mut bytes);
+        let count = read_compact_size(&mut bytes)?;
         assert_eq!(count, 256_u64.pow(7) + 1 + 256_u64);
 
         // real world scenario with weird tx of 20k txs
         let hex = "fd204e";
-        let count = extract_tx_size(hex);
+        let count = extract_tx_size(hex)?;
         assert_eq!(count, 20_000_u64);
+
+        Ok(())
     }
 }
