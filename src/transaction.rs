@@ -1,14 +1,14 @@
-use std::io::{Error, ErrorKind, Read};
 use serde::{Serialize, Serializer};
 use sha2::{Digest, Sha256};
+use std::io::{Error, ErrorKind, Read};
 
 pub fn hash_raw_transaction(raw_tx: &[u8]) -> Txid {
     let mut hasher = Sha256::new();
-    hasher.update(&raw_tx);
+    hasher.update(raw_tx);
     let hash1 = hasher.finalize();
 
     let mut hasher = Sha256::new();
-    hasher.update(&hash1);
+    hasher.update(hash1);
     let hash2 = hasher.finalize();
 
     // we can call into() on a trait that implements From, as into is the reciprocal of From and
@@ -34,10 +34,13 @@ pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, Error> {
     let transaction_bytes = hex::decode(raw_tx_hex).map_err(|_x| "Hex decode error");
     let transaction_bytes = match transaction_bytes {
         Ok(tb) => tb,
-        Err(e) => return Err(Error::new(ErrorKind::InvalidInput, format!("{:?}", e))),
+        Err(e) => return Err(Error::new(ErrorKind::InvalidInput, format!("{e:?}"))),
     };
     if transaction_bytes.len() < 8 {
-        return Err(Error::new(ErrorKind::InvalidInput, "Transaction data too short"));
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "Transaction data too short",
+        ));
     }
 
     let mut bytes_slice = transaction_bytes.as_slice();
@@ -48,13 +51,14 @@ pub fn extract_tx_size(raw_tx_hex: &str) -> Result<u64, Error> {
     let transaction_bytes = hex::decode(raw_tx_hex);
     let transaction_bytes = match transaction_bytes {
         Ok(tb) => tb,
-        Err(e) => return Err(Error::new(ErrorKind::InvalidInput, format!("{:?}", e))),
+        Err(e) => return Err(Error::new(ErrorKind::InvalidInput, format!("{e:?}"))),
     };
     let mut bytes_slice = transaction_bytes.as_slice();
 
     read_compact_size(&mut bytes_slice)
 }
 
+#[warn(unreachable_patterns)]
 pub fn read_compact_size(transaction_bytes: &mut &[u8]) -> Result<u64, Error> {
     let mut compact_size = [0_u8; 1];
     transaction_bytes.read_exact(&mut compact_size)?;
@@ -65,18 +69,18 @@ pub fn read_compact_size(transaction_bytes: &mut &[u8]) -> Result<u64, Error> {
             let mut buffer = [0; 2];
             transaction_bytes.read_exact(&mut buffer)?;
             Ok(u16::from_le_bytes(buffer) as u64)
-        },
+        }
         254 => {
             let mut buffer = [0; 4];
             transaction_bytes.read_exact(&mut buffer)?;
             Ok(u32::from_le_bytes(buffer) as u64)
-        },
+        }
         255 => {
             let mut buffer = [0; 8];
             transaction_bytes.read_exact(&mut buffer)?;
             Ok(u64::from_le_bytes(buffer))
         }
-        _ => panic!("Invalid compact size"),
+        _ => Err(Error::new(ErrorKind::InvalidInput, "Invalid compact size")),
     }
 }
 
@@ -113,7 +117,6 @@ pub fn read_amount(transaction_bytes: &mut &[u8]) -> Result<Amount, Error> {
     Ok(Amount::from_sat(amount))
 }
 
-
 #[derive(Debug, Serialize)]
 pub struct Transaction {
     pub transaction_id: Txid,
@@ -133,8 +136,8 @@ impl Txid {
 }
 
 impl Serialize for Txid {
-    fn serialize<S:Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut bytes = self.0.clone();
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut bytes = self.0;
         bytes.reverse();
         serializer.serialize_str(&hex::encode(bytes))
     }
@@ -160,11 +163,10 @@ pub fn as_btc<S: Serializer, T: BitcoinValue>(t: &T, s: S) -> Result<S::Ok, S::E
     s.serialize_f64(btc)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::io::Error;
     use crate::{extract_tx_size, read_compact_size};
+    use std::io::Error;
 
     #[test]
     fn test_read_compact_size() -> Result<(), Error> {
