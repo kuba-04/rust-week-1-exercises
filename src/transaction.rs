@@ -9,16 +9,18 @@ pub fn hash_raw_transaction(raw_tx: &[u8]) -> Txid {
 
     let mut hasher = Sha256::new();
     hasher.update(hash1);
-    let hash2 = hasher.finalize();
+    let mut hash2: [u8; 32] = hasher.finalize().into();
 
-    // we can call into() on a trait that implements From, as into is the reciprocal of From and
-    // the lib says that finalize returns the GenericArray
-    Txid::from_bytes(hash2.into())
+    // Bitcoin displays txids in reverse byte order
+    hash2.reverse();
+    Txid::from_bytes(hash2)
 }
 
 pub fn read_txid(transaction_bytes: &mut &[u8]) -> Result<Txid, Error> {
     let mut buffer = [0; 32];
-    transaction_bytes.read_exact(&mut buffer)?;
+    transaction_bytes.read(&mut buffer)?;
+    // Input txids in raw transactions are stored in little-endian (reverse) order
+    // We need to reverse them to get the standard display order
     buffer.reverse();
     Ok(Txid::from_bytes(buffer))
 }
@@ -26,58 +28,30 @@ pub fn read_txid(transaction_bytes: &mut &[u8]) -> Result<Txid, Error> {
 pub fn read_script(transaction_bytes: &mut &[u8]) -> Result<String, Error> {
     let script_size = read_compact_size(transaction_bytes)? as usize;
     let mut buffer = vec![0_u8; script_size];
-    transaction_bytes.read_exact(&mut buffer)?;
+    transaction_bytes.read(&mut buffer)?;
     Ok(hex::encode(buffer))
-}
-
-pub fn extract_tx_version(raw_tx_hex: &str) -> Result<u32, Error> {
-    let transaction_bytes = hex::decode(raw_tx_hex).map_err(|_x| "Hex decode error");
-    let transaction_bytes = match transaction_bytes {
-        Ok(tb) => tb,
-        Err(e) => return Err(Error::new(ErrorKind::InvalidInput, format!("{e:?}"))),
-    };
-    if transaction_bytes.len() < 8 {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "Transaction data too short",
-        ));
-    }
-
-    let mut bytes_slice = transaction_bytes.as_slice();
-    read_u32(&mut bytes_slice)
-}
-
-pub fn extract_tx_size(raw_tx_hex: &str) -> Result<u64, Error> {
-    let transaction_bytes = hex::decode(raw_tx_hex);
-    let transaction_bytes = match transaction_bytes {
-        Ok(tb) => tb,
-        Err(e) => return Err(Error::new(ErrorKind::InvalidInput, format!("{e:?}"))),
-    };
-    let mut bytes_slice = transaction_bytes.as_slice();
-
-    read_compact_size(&mut bytes_slice)
 }
 
 #[warn(unreachable_patterns)]
 pub fn read_compact_size(transaction_bytes: &mut &[u8]) -> Result<u64, Error> {
     let mut compact_size = [0_u8; 1];
-    transaction_bytes.read_exact(&mut compact_size)?;
+    transaction_bytes.read(&mut compact_size)?;
 
     match compact_size[0] {
         0..=252 => Ok(compact_size[0] as u64),
         253 => {
             let mut buffer = [0; 2];
-            transaction_bytes.read_exact(&mut buffer)?;
+            transaction_bytes.read(&mut buffer)?;
             Ok(u16::from_le_bytes(buffer) as u64)
         }
         254 => {
             let mut buffer = [0; 4];
-            transaction_bytes.read_exact(&mut buffer)?;
+            transaction_bytes.read(&mut buffer)?;
             Ok(u32::from_le_bytes(buffer) as u64)
         }
         255 => {
             let mut buffer = [0; 8];
-            transaction_bytes.read_exact(&mut buffer)?;
+            transaction_bytes.read(&mut buffer)?;
             Ok(u64::from_le_bytes(buffer))
         }
         _ => Err(Error::new(ErrorKind::InvalidInput, "Invalid compact size")),
@@ -86,7 +60,7 @@ pub fn read_compact_size(transaction_bytes: &mut &[u8]) -> Result<u64, Error> {
 
 pub fn read_u32(transaction_bytes: &mut &[u8]) -> Result<u32, Error> {
     let mut buffer = [0; 4];
-    transaction_bytes.read_exact(&mut buffer)?;
+    transaction_bytes.read(&mut buffer)?;
 
     Ok(u32::from_le_bytes(buffer))
 }
@@ -112,7 +86,7 @@ impl BitcoinValue for Amount {
 
 pub fn read_amount(transaction_bytes: &mut &[u8]) -> Result<Amount, Error> {
     let mut buffer = [0; 8];
-    transaction_bytes.read_exact(&mut buffer)?;
+    transaction_bytes.read(&mut buffer)?;
     let amount = u64::from_le_bytes(buffer);
     Ok(Amount::from_sat(amount))
 }
@@ -137,16 +111,15 @@ impl Txid {
 
 impl Serialize for Txid {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut bytes = self.0;
-        bytes.reverse();
-        serializer.serialize_str(&hex::encode(bytes))
+        // Txids are already in display order (big-endian), just encode them
+        serializer.serialize_str(&hex::encode(self.0))
     }
 }
 
 #[derive(Debug, Serialize)]
 pub struct Input {
     pub txid: Txid,
-    pub output_index: u32,
+    pub vout: u32,
     pub script_sig: String, // Vec<u8>
     pub sequence: u32,
 }
@@ -165,8 +138,8 @@ pub fn as_btc<S: Serializer, T: BitcoinValue>(t: &T, s: S) -> Result<S::Ok, S::E
 
 #[cfg(test)]
 mod tests {
-    use crate::{extract_tx_size, read_compact_size};
-    use std::io::Error;
+    use crate::transaction::read_compact_size;
+    use std::io::{Error, ErrorKind};
 
     #[test]
     fn test_read_compact_size() -> Result<(), Error> {
@@ -193,7 +166,10 @@ mod tests {
 
         // real world scenario with weird tx of 20k txs
         let hex = "fd204e";
-        let count = extract_tx_size(hex)?;
+        let transaction_bytes =
+            hex::decode(hex).map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
+        let mut bytes_slice = transaction_bytes.as_slice();
+        let count = read_compact_size(&mut bytes_slice)?;
         assert_eq!(count, 20_000_u64);
 
         Ok(())
